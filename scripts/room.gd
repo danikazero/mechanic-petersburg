@@ -38,10 +38,6 @@ var action := Button.new()
 var stick := Control.new()
 var facing := 2
 var web_stick: JavaScriptObject
-var diagnostics: Label
-var touch_starts := 0
-var touch_drags := 0
-var travel := 0.0
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -61,16 +57,8 @@ func _ready() -> void:
 	player.position = Vector2(560, 500) if is_apartment() else Vector2(470, 480)
 
 	var hud := CanvasLayer.new()
+	hud.layer = 2
 	add_child(hud)
-	if OS.get_name() == "Web" and JavaScriptBridge.eval("new URLSearchParams(location.search).get('diagnostics') === '1'") == true:
-		diagnostics = Label.new()
-		diagnostics.position = Vector2(24, 70)
-		diagnostics.add_theme_font_size_override("font_size", 26)
-		diagnostics.add_theme_color_override("font_shadow_color", Color.BLACK)
-		diagnostics.add_theme_constant_override("shadow_offset_x", 2)
-		diagnostics.add_theme_constant_override("shadow_offset_y", 2)
-		diagnostics.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		hud.add_child(diagnostics)
 	stick.position = Vector2(24, 462)
 	stick.size = Vector2(164, 164)
 	stick.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -95,53 +83,9 @@ func _ready() -> void:
 		style_hud_button(phone, "hud-phone", "hud-phone")
 		phone.pressed.connect(func(): phone_opened.emit())
 		hud.add_child(phone)
-	if OS.get_name() == "Web":
-		setup_web_stick()
 	update_hud()
-
-func setup_web_stick() -> void:
-	# Read browser pointer state each frame, including when a touch stays still.
-	JavaScriptBridge.eval("""
-		if (!window.mechanicStick) {
-			const state = window.mechanicStick = { id: -1, x: 0, y: 0, starts: 0, drags: 0 };
-			const canvas = document.getElementById('canvas');
-			const point = event => {
-				const box = canvas.getBoundingClientRect();
-				const scale = Math.min(box.width / 1152, box.height / 648);
-				return {
-					x: (event.clientX - box.left - (box.width - 1152 * scale) / 2) / scale,
-					y: (event.clientY - box.top - (box.height - 648 * scale) / 2) / scale
-				};
-			};
-			window.addEventListener('pointerdown', event => {
-				if (event.target !== canvas || event.pointerType === 'mouse' || state.id !== -1) return;
-				const pos = point(event);
-				if (pos.x < 24 || pos.x > 188 || pos.y < 462 || pos.y > 626) return;
-				Object.assign(state, pos);
-				state.id = event.pointerId;
-				state.starts++;
-			}, true);
-			window.addEventListener('pointermove', event => {
-				if (event.pointerId !== state.id) return;
-				Object.assign(state, point(event));
-				state.drags++;
-			}, true);
-			const release = event => {
-				if (event.pointerId === state.id) state.id = -1;
-			};
-			window.addEventListener('pointerup', release, true);
-			window.addEventListener('pointercancel', release, true);
-			window.addEventListener('blur', () => { state.id = -1; });
-			document.addEventListener('visibilitychange', () => {
-				if (document.hidden) state.id = -1;
-			});
-		}
-	""", true)
-	web_stick = JavaScriptBridge.get_interface("mechanicStick")
-	if web_stick != null:
-		web_stick.id = -1
-		web_stick.starts = 0
-		web_stick.drags = 0
+	if OS.has_feature("web"):
+		web_stick = JavaScriptBridge.get_interface("mechanicStick")
 
 func setup_sprite() -> void:
 	var atlas := preload("res://assets/characters/mechanic_directions.png")
@@ -161,7 +105,7 @@ func setup_sprite() -> void:
 	sprite.sprite_frames = frames
 	sprite.centered = false
 	sprite.offset = -Vector2(FRAME_SIZE.x / 2, FRAME_SIZE.y)
-	sprite.scale = Vector2(2.7, 2.7) if is_apartment() else Vector2.ONE
+	sprite.scale = Vector2(3.24, 3.24) if is_apartment() else Vector2.ONE
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	player.add_child(sprite)
 	sprite.play("idle_2")
@@ -234,11 +178,9 @@ func _input(event: InputEvent) -> void:
 			interact()
 		elif web_stick == null and stick_id == -1 and not mouse_stick and Rect2(stick.position, stick.size).has_point(event.position):
 			stick_id = event.index
-			touch_starts += 1
 			update_stick(event.position)
 			get_viewport().set_input_as_handled()
 	elif event is InputEventScreenDrag and event.index == stick_id:
-		touch_drags += 1
 		update_stick(event.position)
 		get_viewport().set_input_as_handled()
 
@@ -280,8 +222,6 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 func _process(delta: float) -> void:
 	if phone_visible:
-		if web_stick != null:
-			web_stick.id = -1
 		sprite.play("idle_%d" % facing)
 		return
 	var keyboard := Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down")
@@ -304,11 +244,6 @@ func _process(delta: float) -> void:
 		var step := Vector2.from_angle(facing * PI / 4.0) * SPEED * minf(delta, 0.05)
 		move_axis(Vector2(step.x, 0.0))
 		move_axis(Vector2(0.0, step.y))
-	if is_instance_valid(diagnostics):
-		travel += player.position.distance_to(previous_position)
-		var starts := int(web_stick.starts) if web_stick != null else touch_starts
-		var drags := int(web_stick.drags) if web_stick != null else touch_drags
-		diagnostics.text = "Касания: %d   Сдвиги: %d   Путь: %.0f" % [starts, drags, travel]
 	var walking := not player.position.is_equal_approx(previous_position)
 	sprite.flip_h = facing in [3, 4, 5]
 	var animation := StringName(("walk_%d" if walking else "idle_%d") % facing)
