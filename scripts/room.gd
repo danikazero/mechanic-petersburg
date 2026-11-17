@@ -62,7 +62,7 @@ func _ready() -> void:
 
 	var hud := CanvasLayer.new()
 	add_child(hud)
-	if OS.has_feature("web") and JavaScriptBridge.eval("new URLSearchParams(location.search).get('diagnostics') === '1'") == true:
+	if OS.get_name() == "Web" and JavaScriptBridge.eval("new URLSearchParams(location.search).get('diagnostics') === '1'") == true:
 		diagnostics = Label.new()
 		diagnostics.position = Vector2(24, 70)
 		diagnostics.add_theme_font_size_override("font_size", 26)
@@ -95,7 +95,7 @@ func _ready() -> void:
 		style_hud_button(phone, "hud-phone", "hud-phone")
 		phone.pressed.connect(func(): phone_opened.emit())
 		hud.add_child(phone)
-	if OS.has_feature("web"):
+	if OS.get_name() == "Web":
 		setup_web_stick()
 	update_hud()
 
@@ -136,7 +136,7 @@ func setup_web_stick() -> void:
 				if (document.hidden) state.id = -1;
 			});
 		}
-	""")
+	""", true)
 	web_stick = JavaScriptBridge.get_interface("mechanicStick")
 	if web_stick != null:
 		web_stick.id = -1
