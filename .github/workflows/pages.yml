@@ -52,6 +52,73 @@ jobs:
           <a href="./$release/">Открыть игру</a>
           </html>
           HTML
+      - name: Test touch movement in the web build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet playwright pillow
+          python3 -m playwright install --with-deps chromium
+          python3 - "$RUNNER_TEMP/mechanic-web/play-${GITHUB_SHA::12}" <<'PY'
+          from functools import partial
+          from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+          from io import BytesIO
+          from PIL import Image, ImageChops
+          from playwright.sync_api import sync_playwright
+          import sys
+          import threading
+
+          server = ThreadingHTTPServer(
+              ("127.0.0.1", 0), partial(SimpleHTTPRequestHandler, directory=sys.argv[1])
+          )
+          threading.Thread(target=server.serve_forever, daemon=True).start()
+          with sync_playwright() as pw:
+              browser = pw.chromium.launch(args=[
+                  "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"
+              ])
+              page = browser.new_page(
+                  viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True
+              )
+              page.on("pageerror", lambda error: print(error, flush=True))
+              page.on("console", lambda message: print(message.text, flush=True)
+                      if message.type in ("error", "warning") else None)
+              page.goto(f"http://127.0.0.1:{server.server_port}/")
+              page.locator("#status").wait_for(state="hidden", timeout=30000)
+              page.wait_for_timeout(1200)
+              canvas = page.locator("#canvas")
+              box = canvas.bounding_box()
+              print(f"Canvas: {box}", flush=True)
+              scale = min(box["width"] / 1152, box["height"] / 648)
+              left = box["x"] + (box["width"] - 1152 * scale) / 2
+              top = box["y"] + (box["height"] - 648 * scale) / 2
+
+              def room_pixels():
+                  return Image.open(BytesIO(page.screenshot())).convert("RGB").crop((
+                      round(left + 170 * scale), round(top + 135 * scale),
+                      round(left + 970 * scale), round(top + 440 * scale),
+                  ))
+
+              touch = page.context.new_cdp_session(page)
+              before = room_pixels()
+              touch.send("Input.dispatchTouchEvent", {
+                  "type": "touchStart",
+                  "touchPoints": [{"x": left + 154 * scale, "y": top + 544 * scale}],
+              })
+              try:
+                  # Allow the software renderer time to draw movement.
+                  for _ in range(20):
+                      page.wait_for_timeout(150)
+                      if ImageChops.difference(before, room_pixels()).getbbox():
+                          break
+                  else:
+                      raise AssertionError("Touch changed no pixels in the room")
+              finally:
+                  touch.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+              page.wait_for_timeout(250)
+              stopped = room_pixels()
+              page.wait_for_timeout(250)
+              assert not ImageChops.difference(stopped, room_pixels()).getbbox(), "Room kept moving after release"
+              print("PASS: the exported web game walks and stops with touch")
+          PY
       - name: Show Godot log if export failed
         if: failure()
         run: |
