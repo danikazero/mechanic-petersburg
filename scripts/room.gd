@@ -3,6 +3,7 @@ extends Node2D
 signal interacted
 signal phone_opened
 
+const STREET = preload("res://scripts/street.gd")
 const ROOM_SIZE := Vector2(1500, 850)
 const SPEED := 112.5
 const PLAYER_RADIUS := 17.0
@@ -42,6 +43,8 @@ var web_stick: JavaScriptObject
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	configure()
+	if room_id == "street":
+		add_child(STREET.new())
 	add_child(player)
 	setup_sprite()
 	var camera := Camera2D.new()
@@ -55,6 +58,8 @@ func _ready() -> void:
 	if is_apartment():
 		obstacles.append(Rect2(0, 0, 1500, 233))
 	player.position = Vector2(560, 500) if is_apartment() else Vector2(470, 480)
+	if room_id == "street":
+		player.position = STREET.ARRIVAL
 
 	var hud := CanvasLayer.new()
 	hud.layer = 2
@@ -106,6 +111,8 @@ func setup_sprite() -> void:
 	sprite.centered = false
 	sprite.offset = -Vector2(FRAME_SIZE.x / 2, FRAME_SIZE.y)
 	sprite.scale = Vector2(3.24, 3.24) if is_apartment() else Vector2.ONE
+	if room_id == "street":
+		sprite.scale = Vector2(1.45, 1.45)
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	player.add_child(sprite)
 	sprite.play("idle_2")
@@ -129,17 +136,20 @@ func configure() -> void:
 			target = Rect2(1179, 245, 110, 44)
 			furniture = [Rect2(137, 233, 320, 211), Rect2(710, 230, 235, 204)]
 		"street":
-			target = Rect2(1100 if has_job else 715, 260, 205, 110)
+			target = STREET.SERVICE_DOOR if has_job else STREET.COURTYARD
+			furniture.assign(STREET.SOLIDS)
 		"kitchen":
 			target = Rect2(770, 310, 150, 112)
 			furniture = [Rect2(410, 165, 270, 110), Rect2(1100, 535, 245, 90)]
 		"district":
 			target = Rect2(695, 300, 145, 70)
 			furniture = [Rect2(160, 215, 270, 105), Rect2(1035, 490, 230, 85)]
-	if not is_apartment():
+	if not is_apartment() and room_id != "street":
 		furniture.append(target)
 
 func _draw() -> void:
+	if room_id == "street":
+		return
 	if is_apartment():
 		draw_texture_rect(preload("res://assets/apartment.png"), Rect2(Vector2.ZERO, ROOM_SIZE), false)
 		return
