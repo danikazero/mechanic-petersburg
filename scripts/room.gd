@@ -29,7 +29,7 @@ func has_phone_menu() -> bool:
 var furniture: Array[Rect2] = []
 @export var room_id := "apartment"
 var stick_id := -1
-var stick_origin := Vector2.ZERO
+var mouse_stick := false
 var stick_vector := Vector2.ZERO
 var prompt := Label.new()
 var action := Button.new()
@@ -185,20 +185,37 @@ func _input(event: InputEvent) -> void:
 		elif Rect2(action.position, action.size).has_point(event.position) and in_reach():
 			get_viewport().set_input_as_handled()
 			interact()
-		elif stick_id == -1 and Rect2(stick.position, stick.size).has_point(event.position):
+		elif stick_id == -1 and not mouse_stick and Rect2(stick.position, stick.size).has_point(event.position):
 			stick_id = event.index
-			stick_origin = event.position
+			update_stick(event.position)
 			get_viewport().set_input_as_handled()
 	elif event is InputEventScreenDrag and event.index == stick_id:
-		stick_vector = ((event.position - stick_origin) / 49.0).limit_length()
-		stick.queue_redraw()
+		update_stick(event.position)
 		get_viewport().set_input_as_handled()
+
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.device != InputEvent.DEVICE_ID_EMULATION:
+		if event.pressed and stick_id == -1 and Rect2(stick.position, stick.size).has_point(event.position):
+			mouse_stick = true
+			update_stick(event.position)
+			get_viewport().set_input_as_handled()
+		elif not event.pressed and mouse_stick:
+			reset_stick()
+			get_viewport().set_input_as_handled()
+	elif event is InputEventMouseMotion and mouse_stick:
+		update_stick(event.position)
+		get_viewport().set_input_as_handled()
+
+func update_stick(position_on_screen: Vector2) -> void:
+	var center := stick.position + stick.size * 0.5
+	stick_vector = ((position_on_screen - center) / 49.0).limit_length()
+	stick.queue_redraw()
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT and is_instance_valid(stick):
 		reset_stick()
 
 func reset_stick() -> void:
+	mouse_stick = false
 	stick_id = -1
 	stick_vector = Vector2.ZERO
 	stick.queue_redraw()
@@ -223,7 +240,7 @@ func _physics_process(_delta: float) -> void:
 			int(Input.is_physical_key_pressed(KEY_D)) - int(Input.is_physical_key_pressed(KEY_A)),
 			int(Input.is_physical_key_pressed(KEY_S)) - int(Input.is_physical_key_pressed(KEY_W))
 		).limit_length()
-	var direction := stick_vector if stick_id >= 0 else keyboard
+	var direction := stick_vector if stick_id >= 0 or mouse_stick else keyboard
 	var moving := direction.length() > 0.2
 	if moving:
 		facing = posmod(roundi(direction.angle() / (PI / 4.0)), 8)
