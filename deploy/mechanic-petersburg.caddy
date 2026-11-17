@@ -1,0 +1,4 @@
+mechanic-petersburg.79-174-81-84.sslip.io {
+    encode gzip
+    reverse_proxy 127.0.0.1:8083
+}

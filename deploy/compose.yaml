@@ -1,0 +1,19 @@
+name: mechanic-petersburg
+services:
+  web:
+    image: nginx:alpine
+    entrypoint: ["nginx", "-g", "daemon off;"]
+    ports:
+      - "127.0.0.1:${MECHANIC_PORT:-8083}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp:size=8m
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./public:/srv/mechanic:ro
+    user: "101:101"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
