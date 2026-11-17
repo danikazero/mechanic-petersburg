@@ -45,6 +45,8 @@ jobs:
           cp deploy/web-joystick.js "$site/$release/web-joystick.js"
           sed -i 's|</body>|<script src="web-joystick.js"></script></body>|' "$site/$release/index.html"
           test "$(grep -c 'src="web-joystick.js"' "$site/$release/index.html")" = 1
+          sed -i '/^const engine = new Engine(GODOT_CONFIG);/i if (new URLSearchParams(location.search).get("test") === "1") GODOT_CONFIG.args.push("--", "--locations");' "$site/$release/index.html"
+          test "$(grep -c 'GODOT_CONFIG.args.push' "$site/$release/index.html")" = 1
           cat > "$site/index.html" <<HTML
           <!doctype html>
           <html lang="ru">
@@ -151,6 +153,20 @@ jobs:
               page.wait_for_timeout(350)
               assert ImageChops.difference(stopped, room_pixels()).getbbox(), "Phone did not open"
               print("PASS: joystick and both buttons visible; hero walks, stops, and opens the phone")
+
+              page.goto(f"http://127.0.0.1:{server.server_port}/?test=1")
+              page.locator("#status").wait_for(state="hidden", timeout=30000)
+              page.wait_for_timeout(1500)
+              street = room_pixels()
+              assert ImageChops.difference(before, street).getbbox(), "Test mode did not start in the street"
+              page.touchscreen.tap(*screen_point(1020, 90))
+              page.wait_for_timeout(350)
+              assert ImageChops.difference(street, room_pixels()).getbbox(), "Location picker did not open"
+              page.touchscreen.tap(*screen_point(576, 230))
+              page.wait_for_timeout(500)
+              apartment = room_pixels()
+              assert not ImageChops.difference(before, apartment).getbbox(), "Picker did not jump to the apartment"
+              print("PASS: browser test mode starts on the street and the menu jumps to the apartment")
           PY
       - name: Show Godot log if export failed
         if: failure()
