@@ -92,7 +92,7 @@ func show_room() -> void:
 	room.phone_opened.connect(func(): open_phone(room))
 	add_child(room)
 	if phone_position != Vector2.ZERO and (stage == phone_origin or (stage == "departure" and phone_origin == "apartment")):
-		room.player.position = phone_position
+		room.place_player(phone_position)
 		phone_position = Vector2.ZERO
 	var overlay := CanvasLayer.new()
 	add_child(overlay)

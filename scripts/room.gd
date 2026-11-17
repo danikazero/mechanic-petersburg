@@ -35,6 +35,9 @@ var stick_id := -1
 var mouse_stick := false
 var stick_vector := Vector2.ZERO
 var prompt := Label.new()
+var pointer: Control
+var pointer_time := 0.0
+var camera := Camera2D.new()
 var action := Button.new()
 var stick := Control.new()
 var facing := 2
@@ -47,19 +50,29 @@ func _ready() -> void:
 		add_child(STREET.new())
 	add_child(player)
 	setup_sprite()
-	var camera := Camera2D.new()
 	camera.limit_left = 0
 	camera.limit_top = 0
-	camera.limit_right = int(ROOM_SIZE.x)
-	camera.limit_bottom = int(ROOM_SIZE.y)
+	var size := room_size()
+	camera.limit_right = int(size.x)
+	camera.limit_bottom = int(size.y)
+	camera.position_smoothing_enabled = room_id == "street"
+	camera.position_smoothing_speed = 7.0
 	player.add_child(camera)
-	obstacles.assign(WALLS)
+	if room_id == "street":
+		y_sort_enabled = true
+		obstacles.assign([
+			Rect2(0, -32, size.x, 32), Rect2(0, size.y, size.x, 32),
+			Rect2(-32, 0, 32, size.y), Rect2(size.x, 0, 32, size.y)
+		])
+	else:
+		obstacles.assign(WALLS)
 	obstacles.append_array(furniture)
 	if is_apartment():
 		obstacles.append(Rect2(0, 0, 1500, 233))
 	player.position = Vector2(560, 500) if is_apartment() else Vector2(470, 480)
 	if room_id == "street":
 		player.position = STREET.ARRIVAL
+	camera.reset_smoothing.call_deferred()
 
 	var hud := CanvasLayer.new()
 	hud.layer = 2
@@ -77,6 +90,8 @@ func _ready() -> void:
 	hud.add_child(action)
 	prompt.position = Vector2(24, 22)
 	prompt.add_theme_font_size_override("font_size", 24)
+	prompt.add_theme_constant_override("outline_size", 7)
+	prompt.add_theme_color_override("font_outline_color", Color(0.06, 0.07, 0.09, 0.85))
 	hud.add_child(prompt)
 	if has_phone_menu():
 		phone = Button.new()
@@ -88,6 +103,13 @@ func _ready() -> void:
 		style_hud_button(phone, "hud-phone", "hud-phone")
 		phone.pressed.connect(func(): phone_opened.emit())
 		hud.add_child(phone)
+	if room_id == "street":
+		pointer = Control.new()
+		pointer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pointer.size = Vector2(1152, 648)
+		pointer.draw.connect(draw_pointer)
+		hud.add_child(pointer)
+		hud.move_child(pointer, 0)
 	update_hud()
 	if OS.has_feature("web"):
 		web_stick = JavaScriptBridge.get_interface("mechanicStick")
@@ -129,6 +151,58 @@ func style_hud_button(button: Button, normal: String, disabled: String) -> void:
 		elif state == "pressed":
 			box.modulate_color = Color(0.87, 0.87, 0.87)
 		button.add_theme_stylebox_override(state, box)
+
+func room_size() -> Vector2:
+	return STREET.MAP_SIZE if room_id == "street" else ROOM_SIZE
+
+func is_blocked(point: Vector2) -> bool:
+	for obstacle in obstacles:
+		if obstacle.grow(PLAYER_RADIUS).has_point(point):
+			return true
+	return false
+
+func place_player(point: Vector2) -> void:
+	# Saved positions from an older map may land inside a building.
+	if Rect2(Vector2.ZERO, room_size()).has_point(point) and not is_blocked(point):
+		player.position = point
+		camera.reset_smoothing()
+
+func draw_pointer() -> void:
+	# Marker above the goal when it is on screen, an edge arrow when it is not.
+	var goal := target.get_center()
+	var screen := get_viewport().get_canvas_transform() * goal
+	var label := "«Ферма Бенуа»" if has_job else "Парадная, д. 23"
+	var font := ThemeDB.fallback_font
+	var bounds := Rect2(48, 84, 1056, 500)
+	var bob := sin(pointer_time * 4.0) * 5.0
+	if Rect2(Vector2.ZERO, Vector2(1152, 648)).grow(-30).has_point(screen):
+		var tip := screen + Vector2(0, -122 + bob)
+		pointer.draw_colored_polygon(PackedVector2Array([tip, tip + Vector2(-13, -20), tip + Vector2(13, -20)]), Color("#f1bb70"))
+		pointer.draw_polyline(PackedVector2Array([tip, tip + Vector2(-13, -20), tip + Vector2(13, -20), tip]), Color("#3a2612"), 2.0)
+		return
+	var center := Vector2(576, 324)
+	var direction := (screen - center).normalized()
+	var spot := center
+	for i in range(64):
+		var next := spot + direction * 12.0
+		if not bounds.has_point(next):
+			break
+		spot = next
+	if spot.y > 420 and (spot.x < 220 or spot.x > 840):
+		spot.y = 420
+	var tip := spot + direction * (6.0 + bob * 0.6)
+	var back := tip - direction * 36.0
+	var side := direction.orthogonal() * 13.0
+	var arrow := PackedVector2Array([tip, back + side, back + direction * 11.0, back - side])
+	pointer.draw_circle(spot - direction * 12.0, 30, Color(0.08, 0.10, 0.14, 0.72))
+	pointer.draw_colored_polygon(arrow, Color("#f1bb70"))
+	arrow.append(tip)
+	pointer.draw_polyline(arrow, Color("#3a2612"), 2.0)
+	var text_size := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 17)
+	var text_pos := spot - direction * 52.0 - Vector2(text_size.x * 0.5, -6)
+	text_pos.x = clampf(text_pos.x, 12, 1140 - text_size.x)
+	pointer.draw_string_outline(font, text_pos, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, 5, Color(0.06, 0.07, 0.09, 0.9))
+	pointer.draw_string(font, text_pos, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color("#f6e7cf"))
 
 func configure() -> void:
 	match room_id:
@@ -260,6 +334,9 @@ func _process(delta: float) -> void:
 	if sprite.animation != animation:
 		sprite.play(animation)
 	update_hud()
+	if room_id == "street":
+		pointer_time += delta
+		pointer.queue_redraw()
 
 func move_axis(step: Vector2) -> void:
 	var destination := player.position + step
@@ -278,10 +355,16 @@ func in_reach() -> bool:
 
 func update_hud() -> void:
 	var location := {"apartment": "Квартира на Рубинштейна", "departure": "Квартира на Рубинштейна", "street": "Улица Рубинштейна", "kitchen": "Кухня «Фермы Бенуа»", "district": "Комната в спальном районе"}
-	var task := {"apartment": "Выйти на улицу", "departure": "Выйти на улицу", "street": "Поехать на заявку" if has_job else "Вернуться в квартиру", "kitchen": "Осмотреть аппарат", "district": "Проверить телефон"}
+	var task := {"apartment": "Выйти на улицу", "departure": "Выйти на улицу", "street": "Дойти до «Фермы Бенуа»" if has_job else "Вернуться в квартиру", "kitchen": "Осмотреть аппарат", "district": "Проверить телефон"}
 	var ready := in_reach()
-	prompt.text = "%s  ·  %s" % [location[room_id], task[room_id]]
-	action.text = task[room_id] if ready else "Взаимодействие"
+	var place: String = location[room_id]
+	if room_id == "street":
+		place = STREET.area_name(player.position)
+	prompt.text = "%s  ·  %s" % [place, task[room_id]]
+	var verb: String = task[room_id]
+	if room_id == "street":
+		verb = "Войти в ресторан" if has_job else "Войти в парадную"
+	action.text = verb if ready else "Взаимодействие"
 	action.tooltip_text = "Взаимодействовать (E)" if ready else "Подойди ближе"
 	action.disabled = not ready
 
