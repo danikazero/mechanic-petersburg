@@ -42,6 +42,9 @@ jobs:
           release="play-${GITHUB_SHA::12}"
           mkdir -p "$site"
           bash deploy/build.sh "$site/$release"
+          cp deploy/web-joystick.js "$site/$release/web-joystick.js"
+          sed -i 's|</body>|<script src="web-joystick.js"></script></body>|' "$site/$release/index.html"
+          test "$(grep -c 'src="web-joystick.js"' "$site/$release/index.html")" = 1
           cat > "$site/index.html" <<HTML
           <!doctype html>
           <html lang="ru">
