@@ -37,6 +37,10 @@ var prompt := Label.new()
 var action := Button.new()
 var stick := Control.new()
 var facing := 2
+var diagnostics: Label
+var touch_starts := 0
+var touch_drags := 0
+var travel := 0.0
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -57,6 +61,15 @@ func _ready() -> void:
 
 	var hud := CanvasLayer.new()
 	add_child(hud)
+	if OS.has_feature("web") and JavaScriptBridge.eval("new URLSearchParams(location.search).get('diagnostics') === '1'") == true:
+		diagnostics = Label.new()
+		diagnostics.position = Vector2(24, 70)
+		diagnostics.add_theme_font_size_override("font_size", 26)
+		diagnostics.add_theme_color_override("font_shadow_color", Color.BLACK)
+		diagnostics.add_theme_constant_override("shadow_offset_x", 2)
+		diagnostics.add_theme_constant_override("shadow_offset_y", 2)
+		diagnostics.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hud.add_child(diagnostics)
 	stick.position = Vector2(24, 462)
 	stick.size = Vector2(164, 164)
 	stick.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -174,9 +187,11 @@ func _input(event: InputEvent) -> void:
 			interact()
 		elif stick_id == -1 and not mouse_stick and Rect2(stick.position, stick.size).has_point(event.position):
 			stick_id = event.index
+			touch_starts += 1
 			update_stick(event.position)
 			get_viewport().set_input_as_handled()
 	elif event is InputEventScreenDrag and event.index == stick_id:
+		touch_drags += 1
 		update_stick(event.position)
 		get_viewport().set_input_as_handled()
 
@@ -235,6 +250,9 @@ func _process(delta: float) -> void:
 		var step := Vector2.from_angle(facing * PI / 4.0) * SPEED * minf(delta, 0.05)
 		move_axis(Vector2(step.x, 0.0))
 		move_axis(Vector2(0.0, step.y))
+	if is_instance_valid(diagnostics):
+		travel += player.position.distance_to(previous_position)
+		diagnostics.text = "Касания: %d   Сдвиги: %d   Путь: %.0f" % [touch_starts, touch_drags, travel]
 	var walking := not player.position.is_equal_approx(previous_position)
 	sprite.flip_h = facing in [3, 4, 5]
 	var animation := StringName(("walk_%d" if walking else "idle_%d") % facing)
