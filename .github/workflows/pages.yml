@@ -36,12 +36,27 @@ jobs:
           echo "GODOT_BIN=$RUNNER_TEMP/godot-bin/$binary" >> "$GITHUB_ENV"
       - name: Export and check game files
         shell: bash
-        run: bash deploy/build.sh "$RUNNER_TEMP/mechanic-web"
+        run: |
+          set -euo pipefail
+          site="$RUNNER_TEMP/mechanic-web"
+          release="play-${GITHUB_SHA::12}"
+          mkdir -p "$site"
+          bash deploy/build.sh "$site/$release"
+          cat > "$site/index.html" <<HTML
+          <!doctype html>
+          <html lang="ru">
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <meta http-equiv="refresh" content="0; url=./$release/">
+          <title>Механик Петербурга</title>
+          <a href="./$release/">Открыть игру</a>
+          </html>
+          HTML
       - name: Show Godot log if export failed
         if: failure()
         run: |
-          if [[ -f "$RUNNER_TEMP/mechanic-web/build.log" ]]; then
-            cat "$RUNNER_TEMP/mechanic-web/build.log"
+          if [[ -f "$RUNNER_TEMP/mechanic-web/play-${GITHUB_SHA::12}/build.log" ]]; then
+            cat "$RUNNER_TEMP/mechanic-web/play-${GITHUB_SHA::12}/build.log"
           fi
       - uses: actions/upload-pages-artifact@v3
         with:
