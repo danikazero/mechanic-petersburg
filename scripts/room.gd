@@ -5,6 +5,7 @@ signal phone_opened
 
 const ROOM_SIZE := Vector2(1500, 850)
 const SPEED := 112.5
+const PLAYER_RADIUS := 17.0
 const REACH := 78.0
 const FRAME_SIZE := Vector2(28, 56)
 const ATLAS_ROWS := [0, 1, 2, 1, 0, 4, 3, 4]
@@ -14,7 +15,8 @@ const WALLS := [
 	Rect2(0, 0, 32, 850), Rect2(1468, 0, 32, 850)
 ]
 
-var player := CharacterBody2D.new()
+var player := Node2D.new()
+var obstacles: Array[Rect2] = []
 var target := Rect2()
 var has_job := false
 var sprite := AnimatedSprite2D.new()
@@ -40,23 +42,18 @@ func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	configure()
 	add_child(player)
-	var shape := CollisionShape2D.new()
-	var circle := CircleShape2D.new()
-	circle.radius = 17
-	shape.shape = circle
-	player.add_child(shape)
 	setup_sprite()
 	var camera := Camera2D.new()
+	camera.limit_left = 0
+	camera.limit_top = 0
 	camera.limit_right = int(ROOM_SIZE.x)
 	camera.limit_bottom = int(ROOM_SIZE.y)
 	player.add_child(camera)
-	for wall in WALLS:
-		add_obstacle(wall)
-	for obstacle in furniture:
-		add_obstacle(obstacle)
+	obstacles.assign(WALLS)
+	obstacles.append_array(furniture)
 	if is_apartment():
-		add_obstacle(Rect2(0, 0, 1500, 233))
-	player.position = Vector2(470, 480)
+		obstacles.append(Rect2(0, 0, 1500, 233))
+	player.position = Vector2(560, 500) if is_apartment() else Vector2(470, 480)
 
 	var hud := CanvasLayer.new()
 	add_child(hud)
@@ -137,16 +134,6 @@ func configure() -> void:
 			furniture = [Rect2(160, 215, 270, 105), Rect2(1035, 490, 230, 85)]
 	if not is_apartment():
 		furniture.append(target)
-
-func add_obstacle(rect: Rect2) -> void:
-	var wall := StaticBody2D.new()
-	wall.position = rect.get_center()
-	var collision := CollisionShape2D.new()
-	var box := RectangleShape2D.new()
-	box.size = rect.size
-	collision.shape = box
-	wall.add_child(collision)
-	add_child(wall)
 
 func _draw() -> void:
 	if is_apartment():
@@ -229,9 +216,8 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		elif event.physical_keycode == KEY_TAB and has_phone_menu():
 			phone_opened.emit()
 
-func _physics_process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if phone_visible:
-		player.velocity = Vector2.ZERO
 		sprite.play("idle_%d" % facing)
 		return
 	var keyboard := Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down")
@@ -244,14 +230,29 @@ func _physics_process(_delta: float) -> void:
 	var moving := direction.length() > 0.2
 	if moving:
 		facing = posmod(roundi(direction.angle() / (PI / 4.0)), 8)
-	player.velocity = Vector2.from_angle(facing * PI / 4.0) * SPEED if moving else Vector2.ZERO
-	player.move_and_slide()
-	var walking := player.get_real_velocity().length() > 5
+	var previous_position := player.position
+	if moving:
+		var step := Vector2.from_angle(facing * PI / 4.0) * SPEED * minf(delta, 0.05)
+		move_axis(Vector2(step.x, 0.0))
+		move_axis(Vector2(0.0, step.y))
+	var walking := not player.position.is_equal_approx(previous_position)
 	sprite.flip_h = facing in [3, 4, 5]
 	var animation := StringName(("walk_%d" if walking else "idle_%d") % facing)
 	if sprite.animation != animation:
 		sprite.play(animation)
 	update_hud()
+
+func move_axis(step: Vector2) -> void:
+	var destination := player.position + step
+	for obstacle in obstacles:
+		var bounds := obstacle.grow(PLAYER_RADIUS)
+		if bounds.has_point(destination):
+			# Allow leaving an overlap when restoring a position from an older build.
+			if not bounds.has_point(player.position):
+				return
+			if destination.distance_squared_to(bounds.get_center()) <= player.position.distance_squared_to(bounds.get_center()):
+				return
+	player.position = destination
 
 func in_reach() -> bool:
 	return player.position.distance_to(player.position.clamp(target.position, target.end)) <= REACH
