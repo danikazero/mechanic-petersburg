@@ -113,6 +113,19 @@ jobs:
                           [name, e.target.id, e.clientX, e.clientY, e.pointerType]), true);
                   }
               }""")
+              def screen_point(x, y):
+                  return round(left + x * scale), round(top + y * scale)
+
+              hud = Image.open(BytesIO(page.screenshot())).convert("RGB")
+              for label, point, expected in (
+                  ("joystick", (106, 544), (214, 161, 102)),
+                  ("phone", (1078, 484), (58, 63, 70)),
+                  ("interaction", (1078, 575), (69, 62, 63)),
+              ):
+                  actual = hud.getpixel(screen_point(*point))
+                  assert max(abs(a - b) for a, b in zip(actual, expected)) < 31, (
+                      f"{label} is not visible at {point}: {actual}"
+                  )
               before = room_pixels()
               touch.send("Input.dispatchTouchEvent", {
                   "type": "touchStart",
@@ -134,7 +147,10 @@ jobs:
               stopped = room_pixels()
               page.wait_for_timeout(250)
               assert not ImageChops.difference(stopped, room_pixels()).getbbox(), "Room kept moving after release"
-              print("PASS: the exported web game walks and stops with touch")
+              page.touchscreen.tap(*screen_point(1000, 500))
+              page.wait_for_timeout(350)
+              assert ImageChops.difference(stopped, room_pixels()).getbbox(), "Phone did not open"
+              print("PASS: joystick and both buttons visible; hero walks, stops, and opens the phone")
           PY
       - name: Show Godot log if export failed
         if: failure()
