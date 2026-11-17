@@ -37,6 +37,7 @@ var prompt := Label.new()
 var action := Button.new()
 var stick := Control.new()
 var facing := 2
+var web_stick: JavaScriptObject
 var diagnostics: Label
 var touch_starts := 0
 var touch_drags := 0
@@ -94,7 +95,53 @@ func _ready() -> void:
 		style_hud_button(phone, "hud-phone", "hud-phone")
 		phone.pressed.connect(func(): phone_opened.emit())
 		hud.add_child(phone)
+	if OS.has_feature("web"):
+		setup_web_stick()
 	update_hud()
+
+func setup_web_stick() -> void:
+	# Read browser pointer state each frame, including when a touch stays still.
+	JavaScriptBridge.eval("""
+		if (!window.mechanicStick) {
+			const state = window.mechanicStick = { id: -1, x: 0, y: 0, starts: 0, drags: 0 };
+			const canvas = document.getElementById('canvas');
+			const point = event => {
+				const box = canvas.getBoundingClientRect();
+				const scale = Math.min(box.width / 1152, box.height / 648);
+				return {
+					x: (event.clientX - box.left - (box.width - 1152 * scale) / 2) / scale,
+					y: (event.clientY - box.top - (box.height - 648 * scale) / 2) / scale
+				};
+			};
+			window.addEventListener('pointerdown', event => {
+				if (event.target !== canvas || event.pointerType === 'mouse' || state.id !== -1) return;
+				const pos = point(event);
+				if (pos.x < 24 || pos.x > 188 || pos.y < 462 || pos.y > 626) return;
+				Object.assign(state, pos);
+				state.id = event.pointerId;
+				state.starts++;
+			}, true);
+			window.addEventListener('pointermove', event => {
+				if (event.pointerId !== state.id) return;
+				Object.assign(state, point(event));
+				state.drags++;
+			}, true);
+			const release = event => {
+				if (event.pointerId === state.id) state.id = -1;
+			};
+			window.addEventListener('pointerup', release, true);
+			window.addEventListener('pointercancel', release, true);
+			window.addEventListener('blur', () => { state.id = -1; });
+			document.addEventListener('visibilitychange', () => {
+				if (document.hidden) state.id = -1;
+			});
+		}
+	""")
+	web_stick = JavaScriptBridge.get_interface("mechanicStick")
+	if web_stick != null:
+		web_stick.id = -1
+		web_stick.starts = 0
+		web_stick.drags = 0
 
 func setup_sprite() -> void:
 	var atlas := preload("res://assets/characters/mechanic_directions.png")
@@ -185,7 +232,7 @@ func _input(event: InputEvent) -> void:
 		elif Rect2(action.position, action.size).has_point(event.position) and in_reach():
 			get_viewport().set_input_as_handled()
 			interact()
-		elif stick_id == -1 and not mouse_stick and Rect2(stick.position, stick.size).has_point(event.position):
+		elif web_stick == null and stick_id == -1 and not mouse_stick and Rect2(stick.position, stick.size).has_point(event.position):
 			stick_id = event.index
 			touch_starts += 1
 			update_stick(event.position)
@@ -233,6 +280,8 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 func _process(delta: float) -> void:
 	if phone_visible:
+		if web_stick != null:
+			web_stick.id = -1
 		sprite.play("idle_%d" % facing)
 		return
 	var keyboard := Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down")
@@ -241,7 +290,12 @@ func _process(delta: float) -> void:
 			int(Input.is_physical_key_pressed(KEY_D)) - int(Input.is_physical_key_pressed(KEY_A)),
 			int(Input.is_physical_key_pressed(KEY_S)) - int(Input.is_physical_key_pressed(KEY_W))
 		).limit_length()
-	var direction := stick_vector if stick_id >= 0 or mouse_stick else keyboard
+	var web_active: bool = web_stick != null and int(web_stick.id) != -1
+	if web_active:
+		update_stick(Vector2(float(web_stick.x), float(web_stick.y)))
+	elif web_stick != null and stick_id == -1 and not mouse_stick and stick_vector != Vector2.ZERO:
+		reset_stick()
+	var direction := stick_vector if web_active or stick_id >= 0 or mouse_stick else keyboard
 	var moving := direction.length() > 0.2
 	if moving:
 		facing = posmod(roundi(direction.angle() / (PI / 4.0)), 8)
@@ -252,7 +306,9 @@ func _process(delta: float) -> void:
 		move_axis(Vector2(0.0, step.y))
 	if is_instance_valid(diagnostics):
 		travel += player.position.distance_to(previous_position)
-		diagnostics.text = "Касания: %d   Сдвиги: %d   Путь: %.0f" % [touch_starts, touch_drags, travel]
+		var starts := int(web_stick.starts) if web_stick != null else touch_starts
+		var drags := int(web_stick.drags) if web_stick != null else touch_drags
+		diagnostics.text = "Касания: %d   Сдвиги: %d   Путь: %.0f" % [starts, drags, travel]
 	var walking := not player.position.is_equal_approx(previous_position)
 	sprite.flip_h = facing in [3, 4, 5]
 	var animation := StringName(("walk_%d" if walking else "idle_%d") % facing)
