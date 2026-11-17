@@ -83,6 +83,7 @@ jobs:
                       if message.type in ("error", "warning") else None)
               page.goto(f"http://127.0.0.1:{server.server_port}/")
               page.locator("#status").wait_for(state="hidden", timeout=30000)
+              page.wait_for_function("window.mechanicStick != null", timeout=30000)
               page.wait_for_timeout(1200)
               canvas = page.locator("#canvas")
               box = canvas.bounding_box()
@@ -98,6 +99,13 @@ jobs:
                   ))
 
               touch = page.context.new_cdp_session(page)
+              page.evaluate("""() => {
+                  window.touchTrace = [];
+                  for (const name of ["pointerdown", "pointermove", "pointercancel", "touchstart", "touchcancel"]) {
+                      window.addEventListener(name, e => window.touchTrace.push(
+                          [name, e.target.id, e.clientX, e.clientY, e.pointerType]), true);
+                  }
+              }""")
               before = room_pixels()
               touch.send("Input.dispatchTouchEvent", {
                   "type": "touchStart",
@@ -110,6 +118,8 @@ jobs:
                       if ImageChops.difference(before, room_pixels()).getbbox():
                           break
                   else:
+                      print(page.evaluate("({stick: window.mechanicStick, trace: window.touchTrace})"), flush=True)
+                      print(f"Room baseline: {before.getbbox()}", flush=True)
                       raise AssertionError("Touch changed no pixels in the room")
               finally:
                   touch.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
