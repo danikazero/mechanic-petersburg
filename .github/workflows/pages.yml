@@ -79,11 +79,15 @@ jobs:
                   viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True
               )
               page.on("pageerror", lambda error: print(error, flush=True))
-              page.on("console", lambda message: print(message.text, flush=True)
-                      if message.type in ("error", "warning") else None)
+              page.on("console", lambda message: print(message.type, message.text, flush=True))
               page.goto(f"http://127.0.0.1:{server.server_port}/")
               page.locator("#status").wait_for(state="hidden", timeout=30000)
-              page.wait_for_function("window.mechanicStick != null", timeout=30000)
+              try:
+                  page.wait_for_function("window.mechanicStick != null", timeout=12000)
+              except Exception:
+                  print("Startup state:", page.locator("body").inner_text(), flush=True)
+                  print("Viewport pixels:", Image.open(BytesIO(page.screenshot())).convert("RGB").getbbox(), flush=True)
+                  raise
               page.wait_for_timeout(1200)
               canvas = page.locator("#canvas")
               box = canvas.bounding_box()
